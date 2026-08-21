@@ -97,6 +97,23 @@ func TestNewAPIChannelRegistration(t *testing.T) {
 	assert.Empty(t, constant.ChannelBaseURLs[constant.ChannelTypeNewAPI])
 }
 
+func TestKieChannelRegistration(t *testing.T) {
+	apiType, ok := common.ChannelType2APIType(constant.ChannelTypeKie)
+
+	require.True(t, ok)
+	assert.Equal(t, constant.APITypeKie, apiType)
+	assert.Equal(t, "KIE AI", constant.GetChannelTypeName(constant.ChannelTypeKie))
+	require.Greater(t, len(constant.ChannelBaseURLs), constant.ChannelTypeKie)
+	assert.Equal(t, "https://api.kie.ai", constant.ChannelBaseURLs[constant.ChannelTypeKie])
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeImageGeneration,
+		constant.EndpointTypeOpenAIResponse,
+	}, common.GetEndpointTypesByChannelType(constant.ChannelTypeKie, "gpt-image-2"))
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAIVideo,
+	}, common.GetEndpointTypesByChannelType(constant.ChannelTypeKie, "grok-imagine-video"))
+}
+
 func TestResponsesCompactChannelSupport(t *testing.T) {
 	tests := []struct {
 		name        string
