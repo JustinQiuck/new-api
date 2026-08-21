@@ -164,6 +164,18 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models',
     },
   },
+  61: {
+    id: 61,
+    name: CHANNEL_TYPES[61],
+    icon: 'OpenAI',
+    defaultBaseUrl: 'https://api.kie.ai',
+    supportedModels: ['gpt-5.5', 'gpt-image-2', 'grok-imagine-video'],
+    hints: {
+      baseUrl: 'Default: https://api.kie.ai',
+      key: 'Enter KIE API key',
+      models: 'gpt-5.5, gpt-image-2, grok-imagine-video',
+    },
+  },
 }
 
 /**

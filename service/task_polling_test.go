@@ -30,6 +30,14 @@ type taskPollingFetchAdaptor struct {
 	blockOnce    sync.Once
 }
 
+type sanitizingPollingAdaptor struct {
+	*taskPollingFetchAdaptor
+}
+
+func (a *sanitizingPollingAdaptor) SanitizeTaskResponse(_ []byte) []byte {
+	return []byte(`{"code":200,"data":{"state":"generating"}}`)
+}
+
 type sunoFailurePollingAdaptor struct {
 	failReason string
 }
@@ -128,6 +136,17 @@ func (a *taskPollingFetchAdaptor) fetchedTaskIDs() []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return append([]string(nil), a.taskIDs...)
+}
+
+func TestSanitizeTaskPollingResponseUsesAdaptorBeforePersistence(t *testing.T) {
+	adaptor := &sanitizingPollingAdaptor{taskPollingFetchAdaptor: &taskPollingFetchAdaptor{}}
+	raw := []byte(`{"data":{"taskId":"private-task","param":"secret prompt","creditsConsumed":42}}`)
+	cleaned := sanitizeTaskPollingResponse(adaptor, raw)
+
+	assert.JSONEq(t, `{"code":200,"data":{"state":"generating"}}`, string(cleaned))
+	assert.NotContains(t, string(cleaned), "private-task")
+	assert.NotContains(t, string(cleaned), "secret prompt")
+	assert.NotContains(t, string(cleaned), "creditsConsumed")
 }
 
 func seedTaskPollingChannel(t *testing.T, id int, disableSleep bool) {
