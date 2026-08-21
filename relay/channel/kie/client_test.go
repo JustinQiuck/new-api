@@ -74,6 +74,30 @@ func TestClientTaskFailureDoesNotExposeProviderPayload(t *testing.T) {
 	assert.NotContains(t, err.Error(), "private-task")
 }
 
+func TestClientRetriesDocumentedProviderServerError(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if polls.Add(1) == 1 {
+			_, _ = w.Write([]byte(`{"code":500,"msg":"temporary server error","data":{}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":200,"data":{"state":"success","resultJson":"{\"resultUrls\":[\"https://example.com/result.png\"]}"}}`))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		BaseURL:      server.URL,
+		APIKey:       "retry-key",
+		HTTPClient:   server.Client(),
+		PollInterval: time.Millisecond,
+		PollTimeout:  time.Second,
+	}
+	result, err := client.WaitForTask(context.Background(), "private-task")
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Data.State)
+	assert.Equal(t, int32(2), polls.Load())
+}
+
 func TestClientUploadsBase64WithoutStableFilename(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any

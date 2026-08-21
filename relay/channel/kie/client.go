@@ -37,8 +37,16 @@ type HTTPStatusError struct {
 	StatusCode int
 }
 
+type ProviderStatusError struct {
+	Code int
+}
+
 func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("KIE request failed with HTTP %d", e.StatusCode)
+}
+
+func (e *ProviderStatusError) Error() string {
+	return fmt.Sprintf("KIE request failed with provider code %d", e.Code)
 }
 
 func (e *TaskFailedError) Error() string {
@@ -74,7 +82,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*TaskRecordRespons
 		return nil, err
 	}
 	if strings.TrimSpace(response.Data.State) == "" {
-		return nil, fmt.Errorf("KIE task query returned no state (code %d)", response.Code)
+		return nil, &ProviderStatusError{Code: response.Code}
 	}
 	return &response, nil
 }
@@ -97,8 +105,7 @@ func (c *Client) WaitForTask(ctx context.Context, taskID string) (*TaskRecordRes
 		}
 		response, err := c.GetTask(ctx, taskID)
 		if err != nil {
-			var statusErr *HTTPStatusError
-			if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusTooManyRequests {
+			if isRetryablePollError(err) {
 				if err := waitForInterval(ctx, interval); err != nil {
 					return nil, fmt.Errorf("KIE task polling stopped: %w", err)
 				}
@@ -120,6 +127,18 @@ func (c *Client) WaitForTask(ctx context.Context, taskID string) (*TaskRecordRes
 			return nil, fmt.Errorf("KIE task polling stopped: %w", err)
 		}
 	}
+}
+
+func isRetryablePollError(err error) bool {
+	var httpErr *HTTPStatusError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= http.StatusInternalServerError
+	}
+	var providerErr *ProviderStatusError
+	if errors.As(err, &providerErr) {
+		return providerErr.Code == http.StatusTooManyRequests || providerErr.Code >= http.StatusInternalServerError
+	}
+	return false
 }
 
 func (c *Client) UploadBase64(ctx context.Context, dataURL string) (string, error) {

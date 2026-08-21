@@ -158,6 +158,41 @@ func TestParseAndSanitizeTaskRecord(t *testing.T) {
 	assert.NotContains(t, failedResult.Reason, "supplier-only detail")
 }
 
+func TestParseTaskResultOnlyTerminatesOnExplicitProviderState(t *testing.T) {
+	adaptor := &TaskAdaptor{}
+
+	_, err := adaptor.ParseTaskResult([]byte(`not-json`))
+	require.ErrorContains(t, err, "invalid data")
+
+	_, err = adaptor.ParseTaskResult([]byte(`{"code":500,"data":{}}`))
+	require.ErrorContains(t, err, "unknown state")
+
+	_, err = adaptor.ParseTaskResult([]byte(`{"code":200,"data":{"state":"processing"}}`))
+	require.ErrorContains(t, err, "unknown state")
+
+	_, err = adaptor.ParseTaskResult([]byte(`{"code":200,"data":{"state":"success","resultJson":"{}"}}`))
+	require.ErrorContains(t, err, "no result URL")
+
+	result, err := adaptor.ParseTaskResult([]byte(`{"code":500,"data":{"state":"success","resultJson":"{\"resultUrls\":[\"https://result.example/video.mp4\"]}"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, string(model.TaskStatusSuccess), result.Status)
+}
+
+func TestFetchTaskRejectsNonSuccessHTTPWithoutPersistingProviderBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"param":"secret prompt","creditsConsumed":42}`))
+	}))
+	defer server.Close()
+
+	resp, err := (&TaskAdaptor{}).FetchTask(server.URL, "provider-key", map[string]any{"task_id": "private-task"}, "")
+	require.Nil(t, resp)
+	var statusErr *kierelay.HTTPStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.StatusInternalServerError, statusErr.StatusCode)
+	assert.NotContains(t, err.Error(), "secret prompt")
+}
+
 func TestConvertToOpenAIVideoUsesPublicStateAndPrivateResultURL(t *testing.T) {
 	task := &model.Task{
 		TaskID:     "task_public",

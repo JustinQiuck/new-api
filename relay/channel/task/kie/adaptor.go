@@ -253,9 +253,9 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		_ = resp.Body.Close()
-		return nil, &kierelay.HTTPStatusError{StatusCode: http.StatusTooManyRequests}
+		return nil, &kierelay.HTTPStatusError{StatusCode: resp.StatusCode}
 	}
 	return resp, nil
 }
@@ -263,7 +263,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInfo, error) {
 	var response kierelay.TaskRecordResponse
 	if err := common.Unmarshal(responseBody, &response); err != nil {
-		return relaycommon.FailTaskInfo("KIE task query returned invalid data"), nil
+		return nil, errors.New("KIE task query returned invalid data")
 	}
 
 	result := &relaycommon.TaskInfo{Code: response.Code}
@@ -275,11 +275,11 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 	case "generating":
 		result.Status = model.TaskStatusInProgress
 	case "success":
-		result.Status = model.TaskStatusSuccess
 		var taskResult kierelay.TaskResult
 		if err := common.UnmarshalJsonStr(response.Data.ResultJSON, &taskResult); err != nil || len(taskResult.ResultURLs) == 0 {
-			return relaycommon.FailTaskInfo("KIE task returned no result URL"), nil
+			return nil, errors.New("KIE task returned no result URL")
 		}
+		result.Status = model.TaskStatusSuccess
 		result.Url = taskResult.ResultURLs[0]
 	case "fail":
 		result.Status = model.TaskStatusFailure
@@ -287,13 +287,9 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 	default:
 		if response.Code == http.StatusTooManyRequests {
 			result.Status = model.TaskStatusQueued
-		} else if response.Code != 0 && response.Code != http.StatusOK {
-			result.Status = model.TaskStatusFailure
-			result.Reason = fmt.Sprintf("KIE task query failed (code %d)", response.Code)
-		} else {
-			result.Status = model.TaskStatusFailure
-			result.Reason = "KIE task query returned no state"
+			break
 		}
+		return nil, fmt.Errorf("KIE task query returned unknown state %q (code %d)", response.Data.State, response.Code)
 	}
 	if response.Data.Progress > 0 && response.Data.Progress <= 100 {
 		result.Progress = fmt.Sprintf("%d%%", response.Data.Progress)
